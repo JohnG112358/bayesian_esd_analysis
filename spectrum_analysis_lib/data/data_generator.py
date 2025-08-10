@@ -16,7 +16,7 @@ class SyntheticDataGenerator:
         This data generator does not guarantee trigger token clue (q, y_bar) appears at least once before T-th token
 
         Args:
-            meta_path (str): 'meta.pkl' file path
+            meta: Dictionary of metadata
             T (int): sequence length
             k (int): how many kinds of trigger tokens
             num_noise_tokens (int): how many kinds of noise tokens
@@ -45,8 +45,10 @@ class SyntheticDataGenerator:
         self.cond_probs = self.cond_probs / row_sums
         
         sorted_tokens = list(self.marginal_probs.argsort()[::-1])
+        
         # most common k-th as trigger
         self.trigger_tokens: List[int] = sorted_tokens[:k]
+        
         # least used num_noise_tokens tokens are noises
         self.noise_token_ids: List[int] = sorted_tokens[-num_noise_tokens:]
 

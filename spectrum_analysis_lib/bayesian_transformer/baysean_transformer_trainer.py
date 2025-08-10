@@ -58,7 +58,7 @@ class BayesianTransformerTrainer:
         
         # loss functions
         self.optimizer = optim.Adam(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=self.learning_rate
+            filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.learning_rate
         )
         
         self.kl_loss = KLLoss(method=kl_method)
@@ -107,9 +107,15 @@ class BayesianTransformerTrainer:
         self.optimizer.zero_grad()
         
         logits = self.model(tokens)
+        print(logits.abs().max().item(), logits.std().item())
+        print(logits.shape)
+        print(targets.shape)
+        
         prediction_loss = self.ce_loss(logits, targets)
-        kl = self.kl_loss(self.model)
-        elbo = prediction_loss + self.kl_weight * kl   
+        
+        kl = self.kl_loss(self.model) 
+        
+        elbo = prediction_loss + (self.kl_weight * kl)
         
         elbo.backward()
         
@@ -230,22 +236,23 @@ class BayesianTransformerTrainer:
     
     def _get_relative_variances(self):
         rel_variances = {}
-        for name, module in self.model.named_modules():
-            if isinstance(module, BayesLinear):
-                mu = module.weight_mu.data
-                raw_sigma = module.weight_raw_sigma.data
-                
-                if module.reparam == 'softplus':
-                    sigma = F.softplus(raw_sigma)
-                elif module.reparam == 'exp':
-                    sigma = torch.exp(raw_sigma)
+        with torch.no_grad():
+            for name, module in self.model.named_modules():
+                if isinstance(module, BayesLinear):
+                    mu = module.weight_mu.detach()
+                    raw_sigma = module.weight_raw_sigma.detach()
                     
-                variance = sigma.pow(2).mean().item()
+                    if module.reparam == 'softplus':
+                        sigma = F.softplus(raw_sigma)
+                    elif module.reparam == 'exp':
+                        sigma = torch.exp(raw_sigma)
+                    
+                    variance = sigma.pow(2).mean().item()
                 
-                mean_abs_mu = mu.abs().mean().item()
+                    mean_abs_mu = mu.abs().mean().item()
                 
-                relative_variance = variance / (mean_abs_mu + 1e-8)
-                rel_variances[name] = relative_variance
+                    relative_variance = variance / (mean_abs_mu + 1e-8)
+                    rel_variances[name] = relative_variance
                 
         return rel_variances
     

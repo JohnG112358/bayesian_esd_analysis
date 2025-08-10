@@ -6,7 +6,7 @@ from spectrum_analysis_lib.bayesian_transformer.bayesian_lib.linear import Bayes
 
 
 class KLLoss(nn.Module):
-    def __init__(self, method='analytic', reduction='mean', last_layer_only=False, num_samples=10):
+    def __init__(self, method='analytic', reduction='sum', last_layer_only=False, num_samples=10, epsilon=1e-8):
         super(KLLoss, self).__init__()
         
         if method not in ['analytic', 'sampling']:
@@ -18,10 +18,11 @@ class KLLoss(nn.Module):
         self.reduction = reduction
         self.last_layer_only = last_layer_only
         self.num_samples = num_samples
+        self.epsilon = epsilon
         
         
     def forward(self, model):
-        kl_sum = 0.0
+        kl_sum = torch.zeros((), device=next(model.parameters()).device)
         num_params = 0
         
         bayesian_modules = [m for m in model.modules() if isinstance(m, BayesLinear)]
@@ -41,8 +42,7 @@ class KLLoss(nn.Module):
                 num_params += layer.bias_mu.numel()
         
         if num_params == 0:
-            print("KLLoss: No Bayesian parameters found - returning 0")
-            return torch.tensor(0.0, device=next(model.parameters()).device)
+            return kl_sum
         
         if self.reduction == 'mean':
             return kl_sum / num_params
@@ -51,27 +51,22 @@ class KLLoss(nn.Module):
 
 
     def _kl_analytic(self, layer):
-        # Add a small epsilon for numerical stability
-        epsilon = 1e-8
-        
         mu_q_w = layer.weight_mu
-        sigma_q_w = self._calculate_sigma(layer, layer.weight_raw_sigma) + epsilon
+        sigma_q_w = self._calculate_sigma(layer, layer.weight_raw_sigma).clamp_min(self.epsilon)
         total_kl = self._kl_formula(mu_q_w, sigma_q_w, layer.prior_mu, layer.prior_sigma).sum()
 
         if layer.bias:
             mu_q_b = layer.bias_mu
-            sigma_q_b = self._calculate_sigma(layer, layer.bias_raw_sigma) + epsilon
+            sigma_q_b = self._calculate_sigma(layer, layer.bias_raw_sigma).clamp_min(self.epsilon)
             kl_bias = self._kl_formula(mu_q_b, sigma_q_b, layer.prior_mu, layer.prior_sigma).sum()
             total_kl += kl_bias
         
         return total_kl
     
     
-    def _kl_sampling(self, layer):
-        epsilon = 1e-8 
-        
+    def _kl_sampling(self, layer):        
         mu_q_w = layer.weight_mu
-        sigma_q_w = self._calculate_sigma(layer, layer.weight_raw_sigma) + epsilon
+        sigma_q_w = self._calculate_sigma(layer, layer.weight_raw_sigma).clamp_min(self.epsilon)
         
         # [num_samples, out_features, in_features]
         mu_q_w_expanded = mu_q_w.unsqueeze(0).expand(self.num_samples, -1, -1)
@@ -83,12 +78,12 @@ class KLLoss(nn.Module):
         log_q_w = self._log_prob(w, mu_q_w_expanded, sigma_q_w_expanded)
         log_p_w = self._log_prob(w, layer.prior_mu, layer.prior_sigma)
         
-        kl_weights = (log_q_w - log_p_w).sum() / self.num_samples
+        kl_weights = (log_q_w - log_p_w).mean(dim=0).sum() 
         
         total_kl = kl_weights
         if layer.bias:
             mu_q_b = layer.bias_mu
-            sigma_q_b = self._calculate_sigma(layer, layer.bias_raw_sigma) + epsilon
+            sigma_q_b = self._calculate_sigma(layer, layer.bias_raw_sigma).clamp_min(self.epsilon)
             
             mu_q_b_expanded = mu_q_b.unsqueeze(0).expand(self.num_samples, -1)
             sigma_q_b_expanded = sigma_q_b.unsqueeze(0).expand(self.num_samples, -1)
@@ -98,14 +93,15 @@ class KLLoss(nn.Module):
             log_q_b = self._log_prob(b, mu_q_b_expanded, sigma_q_b_expanded)
             log_p_b = self._log_prob(b, layer.prior_mu, layer.prior_sigma)
             
-            total_kl += (log_q_b - log_p_b).sum() / self.num_samples
+            total_kl += (log_q_b - log_p_b).mean(dim=0).sum()
         
         return total_kl
         
     
     def _log_prob(self, value, mu, sigma):
         """Log probability of a value under a Gaussian distribution."""
-        return -torch.log(sigma) - 0.5 * math.log(2 * math.pi) - 0.5 * ((value - mu) / sigma)**2
+        two_pi = torch.tensor(2.0 * math.pi, dtype=value.dtype, device=value.device)
+        return -torch.log(sigma) - 0.5 * torch.log(two_pi) - 0.5 * ((value - mu) / sigma)**2
     
     
     def _kl_formula(self, mu_q, sigma_q, mu_p, sigma_p):

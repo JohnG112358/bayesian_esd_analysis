@@ -8,6 +8,13 @@ ifeq ($(interactive),true)
     DOCKER_FLAGS = -it
 endif
 
+build:
+	docker build . -t esd_base
+	docker build ./experiments/bayesian_transformer -t btransform
+
+btransform:
+	$(DOCKER_RUN_BASE) $(DOCKER_FLAGS) btransform
+
 push_deps:
 	docker build ./deps_image -t esd_deps
 	docker tag esd_deps:latest ghcr.io/johng112358/docker_images/esd_deps:latest

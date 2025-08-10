@@ -5,7 +5,7 @@ import numpy as np
 import wandb
 from collections import Counter, defaultdict
 from itertools import chain
-import pickle
+
 
 class ShakespeareDataProcessor:
     def __init__(self, wandb_run, train_split=0.9):
@@ -66,7 +66,7 @@ class ShakespeareDataProcessor:
         return ''.join([self.itos[i] for i in l])
     
     
-    def process_and_save(self):
+    def process(self):
         """Main method to run the full processing pipeline."""
         self._load_data()
         self._build_vocab()
@@ -107,6 +107,8 @@ class ShakespeareDataProcessor:
         with open(self.meta_pkl_path, 'wb') as f:
             pickle.dump(meta, f)
         print(f"Saved metadata to {self.meta_pkl_path}")
+        
+        return meta
         
         
     def save_data(self):
@@ -149,6 +151,8 @@ class ShakespeareDataProcessor:
 
             return meta      
         except wandb.errors.CommError:
-            print("Artifact 'shakespeare-char-dataset:latest' not found. Will process data from scratch.")
+            print("Artifact 'shakespeare-char-dataset:latest' not found. You must process data from scratch.")
+            self.train_ids = None
+            self.val_ids = None
             return None
         
