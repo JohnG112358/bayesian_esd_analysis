@@ -129,7 +129,7 @@ class BayesianTransformer(nn.Module):
                  prior_sigma: float = 1.0, 
                  use_ffn_block1: bool = True,
                  use_ffn_block2: bool = True,
-                 tie_weights: bool = True,
+                 tie_weights: bool = False,
                  reparam = 'softplus'):
 
         super().__init__()
@@ -159,7 +159,7 @@ class BayesianTransformer(nn.Module):
         
         if tie_weights:
             self.output_head.weight = self.tok_embeddings.weight
-
+        
 
     def forward(self, tokens: torch.Tensor):
         # tokens: [batch_size, seq_len]
@@ -167,12 +167,10 @@ class BayesianTransformer(nn.Module):
 
         #  x̂_t = W_E(z_t) + p_t
         h = self.tok_embeddings(tokens) # [batch_size, seq_len, d_model]
-        print(h.max())
-        print(self.pe.max())
         h = h + self.pe[:seq_len, :].unsqueeze(0) # Add positional encoding
 
         # Causal mask
-        mask = torch.full((seq_len, seq_len), float('-inf'), device=tokens.device)
+        mask = torch.full((seq_len, seq_len), float('-inf'), device=tokens.device, dtype=h.dtype)
         mask = torch.triu(mask, diagonal=1)
 
         # h -> layer1 -> h -> layer2 -> h

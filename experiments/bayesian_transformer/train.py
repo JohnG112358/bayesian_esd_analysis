@@ -8,6 +8,7 @@ from spectrum_analysis_lib.data.data import ShakespeareDataProcessor
 from spectrum_analysis_lib.data.data_generator import SyntheticDataGenerator
 from spectrum_analysis_lib.bayesian_transformer.bayesian_transformer import BayesianTransformer
 from spectrum_analysis_lib.bayesian_transformer.baysean_transformer_trainer import BayesianTransformerTrainer
+from spectrum_analysis_lib.analysis.esd_analyzer import ESDAnalyzer
 
 # ---------------------
 # Setup
@@ -38,9 +39,10 @@ config = dict(
     prior_mu                = 0,
     prior_sigma             = 0.01,
     reparam                 = 'softplus',
+    kl_method               = 'sampling',
     use_ffn_block1          = True,
     use_ffn_block2          = True,
-    num_train_steps         = 6000,
+    num_train_steps         = 500,
     batch_size              = 128,
     lr                      = 1e-4,
     kl_weight               = 1.0 / 6000000,
@@ -61,6 +63,7 @@ wandb_run = wandb.init(
     id=rand_id
 )
 
+
 # ---------------------
 # Data
 # ---------------------
@@ -70,7 +73,7 @@ meta = dataset.load_data()
 if meta is None:
     meta = dataset.process()
     dataset.save_data()
-   
+
 train_data_generator = SyntheticDataGenerator(meta=meta, T=config['seq_len'], k=config['num_trigger_tokens'], 
                                               num_noise_tokens=config['num_det_noise_tokens'], alpha=config['prob_noise_replacement'],
                                               random_noise_tokens=config['random_noise_tokens'])
@@ -86,19 +89,19 @@ model = BayesianTransformer(vocab_size=meta['vocab_size'], d_model=config['d_mod
                             prior_mu=config['prior_mu'], prior_sigma=config['prior_sigma'], use_ffn_block1=config['use_ffn_block1'],
                             use_ffn_block2=config['use_ffn_block2'], reparam=config['reparam'])
 
-from spectrum_analysis_lib.bayesian_transformer.bayesian_lib.linear import BayesLinear
-import torch.nn.functional as F
-for name, m in model.named_modules():
-    if isinstance(m, BayesLinear):
-        s = (F.softplus(m.weight_raw_sigma) if m.reparam=='softplus' else m.weight_raw_sigma.exp()).mean().item()
-        print(name, s)
-
 # ---------------------
 # Training
 # ---------------------
 trainer = BayesianTransformerTrainer(model=model, train_data_generator=train_data_generator, test_data_generator=test_data_generator,
                                      num_train_steps=config['num_train_steps'], batch_size=config['batch_size'], learning_rate=config['lr'],
-                                     kl_weight=config['kl_weight'], grad_clip_value=config['grad_clip'], wandb_run=wandb_run, device=device)
-trainer.train()
+                                     kl_weight=config['kl_weight'], grad_clip_value=config['grad_clip'], kl_method=config['kl_method'],
+                                     wandb_run=wandb_run, device=device)
+model = trainer.train()
 trainer.save_model()
 
+
+# ---------------------
+# ESD Analysis
+# ---------------------
+analyzer = ESDAnalyzer(model, wandb_run)
+analyzer.run_analyses()

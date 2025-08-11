@@ -24,7 +24,7 @@ class BayesianTransformerTrainer:
                  wandb_run, 
                  device,
                  grad_clip_value = 1.0,
-                 kl_method='analytic',
+                 kl_method='sampling',
                  eval_interval=100,
                  pruning_rhos = [0, 0.02, 0.1, 0.9],
                  num_eval_batches = 10,
@@ -76,7 +76,7 @@ class BayesianTransformerTrainer:
     
     
     def train(self):
-        progress_bar = tqdm(range(self.num_train_steps), desc="Training Step: ")
+        progress_bar = tqdm(range(1, self.num_train_steps+1), desc="Training Step: ")
         
         for step in progress_bar:
             input_tokens, target_tokens = self.train_gen.generate_batch(self.batch_size)
@@ -107,15 +107,10 @@ class BayesianTransformerTrainer:
         self.optimizer.zero_grad()
         
         logits = self.model(tokens)
-        print(logits.abs().max().item(), logits.std().item())
-        print(logits.shape)
-        print(targets.shape)
         
         prediction_loss = self.ce_loss(logits, targets)
-        
-        kl = self.kl_loss(self.model) 
-        
-        elbo = prediction_loss + (self.kl_weight * kl)
+        kl = self.kl_loss(self.model) * self.kl_weight
+        elbo = prediction_loss + kl
         
         elbo.backward()
         
@@ -126,9 +121,7 @@ class BayesianTransformerTrainer:
         return prediction_loss.item(), kl.item(), elbo.item()
     
     
-    def _evaluate_and_log(self, step):
-        tqdm.write(f"\n--- Evaluating at step {step} ---")
-        
+    def _evaluate_and_log(self, step): 
         # Get pruning accuracy results
         pruning_results = self._evaluate_with_pruning()
         
@@ -146,7 +139,6 @@ class BayesianTransformerTrainer:
                 log_payload[f'eval_pruned_accuracy/{layer_name}/rho_{rho}'] = acc
                 
         self.wandb_run.log(log_payload, step=step)
-        tqdm.write(f"--- Evaluation complete. Baseline Accuracy: {log_payload['eval/baseline_accuracy']:.4f} ---")
     
     
     @torch.no_grad()
@@ -156,7 +148,7 @@ class BayesianTransformerTrainer:
         # Store the original model state to restore it after pruning
         original_state_dict = OrderedDict((k, v.clone()) for k, v in self.model.state_dict().items())
         
-        for layer_name in self.layers_to_prune:
+        for layer_name in tqdm(self.layers_to_prune, desc="Pruning layers", leave=False):
             results[layer_name] = {}
             layer_module = dict(self.model.named_modules())[layer_name]
             
@@ -258,7 +250,7 @@ class BayesianTransformerTrainer:
     
     
     def save_model(self):
-        model_path = os.path.join(self.save_dir, 'final_model.pth')
+        model_path = os.path.join(self.save_dir, 'final_model.pt')
         torch.save(self.model.state_dict(), model_path)
         
         artifact = wandb.Artifact(
@@ -268,5 +260,20 @@ class BayesianTransformerTrainer:
         
         artifact.add_file(model_path)
         self.wandb_run.log_artifact(artifact)
-        print("Model successfuly saved to wandb")
-        
+        print("Model successfully saved to wandb")
+    
+    
+    @staticmethod
+    def load_model(wandb_run, artifact_address, btransformer_instance, device):
+        try:
+            artifact = wandb_run.use_artifact(artifact_address, type='model')
+            artifact_dir = artifact.download()
+
+            state_dict_path = os.path.join(artifact_dir, 'final_model.pt')
+            btransformer_instance.load_state_dict(torch.load(state_dict_path, weights_only=True))
+            btransformer_instance.to(device).eval()
+            print("Pretrained Bayesian Transformer loaded successfully.")
+            return btransformer_instance
+        except wandb.errors.CommError as e:
+            print(f"Pretrained Bayesian Transformer '{artifact_address}' not found.")
+            return None
