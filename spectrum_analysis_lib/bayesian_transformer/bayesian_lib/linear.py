@@ -7,7 +7,7 @@ import torch.nn.functional as F
 class BayesLinear(Module):
     __constants__ = ['bias', 'in_features', 'out_features']
 
-    def __init__(self, prior_mu, prior_sigma, in_features, out_features, bias=True, reparam='softplus'):
+    def __init__(self, prior_mu, prior_sigma, initial_sigma, in_features, out_features, bias=True, reparam='softplus'):
         super().__init__()
         
         if not isinstance(prior_mu, (int, float)) or not math.isfinite(prior_mu):
@@ -20,6 +20,7 @@ class BayesLinear(Module):
         self.reparam = reparam
         self.in_features = in_features
         self.out_features = out_features
+        self.initial_sigma = initial_sigma
         
         self.register_buffer("prior_mu", torch.tensor(float(prior_mu), dtype=torch.get_default_dtype()))
         self.register_buffer("prior_sigma", torch.tensor(float(prior_sigma), dtype=torch.get_default_dtype()).clamp_min(1e-12))
@@ -46,10 +47,9 @@ class BayesLinear(Module):
     def reset_parameters(self):
         """
         Initializes the parameters of the layer. The raw_sigma parameters are initialized
-        with the inverse softplus or log of the prior_sigma to ensure that the initial
-        sigma matches the prior.
+        with the inverse softplus or log of the initial_sigma 
         """        
-        initial_raw_sigma = self._inv_sigma(self.prior_sigma).item()
+        initial_raw_sigma = self._inv_sigma(self.initial_sigma).item()
         
         # Initialize weights
         stdv = 1. / math.sqrt(self.weight_mu.size(1))

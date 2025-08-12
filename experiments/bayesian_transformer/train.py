@@ -31,18 +31,19 @@ print(f"🔬 Experiment ID: {rand_id}")
 config = dict(
     seed                    = 42,
     seq_len                 = 256,
-    prob_noise_replacement  = 0.0,
+    prob_noise_replacement  = 0.5,
     num_trigger_tokens      = 1,
     num_det_noise_tokens    = 1,
     random_noise_tokens     = False,
     d_model                 = 256,
     prior_mu                = 0,
     prior_sigma             = 0.01,
+    initial_sigma           = 0.01,
     reparam                 = 'softplus',
     kl_method               = 'sampling',
     use_ffn_block1          = True,
     use_ffn_block2          = True,
-    num_train_steps         = 500,
+    num_train_steps         = 2000,
     batch_size              = 128,
     lr                      = 1e-4,
     kl_weight               = 1.0 / 6000000,
@@ -86,8 +87,8 @@ test_data_generator = SyntheticDataGenerator(meta=meta, T=config['seq_len'], k=c
 # Model
 # ---------------------
 model = BayesianTransformer(vocab_size=meta['vocab_size'], d_model=config['d_model'], max_seq_len=config['seq_len'],
-                            prior_mu=config['prior_mu'], prior_sigma=config['prior_sigma'], use_ffn_block1=config['use_ffn_block1'],
-                            use_ffn_block2=config['use_ffn_block2'], reparam=config['reparam'])
+                            prior_mu=config['prior_mu'], prior_sigma=config['prior_sigma'], initial_sigma=config['initial_sigma'], 
+                            use_ffn_block1=config['use_ffn_block1'], use_ffn_block2=config['use_ffn_block2'], reparam=config['reparam'])
 
 # ---------------------
 # Training

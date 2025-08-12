@@ -25,7 +25,7 @@ class BayesianTransformerTrainer:
                  device,
                  grad_clip_value = 1.0,
                  kl_method='sampling',
-                 eval_interval=100,
+                 eval_interval=200,
                  pruning_rhos = [0, 0.02, 0.1, 0.9],
                  num_eval_batches = 10,
                  num_eval_weight_samples = 10

@@ -14,6 +14,7 @@ class BayesianAttention(nn.Module):
                  dim: int, 
                  prior_mu: float = 0.0, 
                  prior_sigma: float = 1.0,
+                 initial_sigma = 0.01,
                  reparam = 'softplus'):
         super().__init__()
         self.dim = dim
@@ -22,9 +23,9 @@ class BayesianAttention(nn.Module):
 
         self.wq = nn.Identity()
 
-        self.wk = BayesLinear(prior_mu, prior_sigma, dim, dim, bias=False, reparam=reparam)
-        self.wv = BayesLinear(prior_mu, prior_sigma, dim, dim, bias=False, reparam=reparam)
-        self.wo = BayesLinear(prior_mu, prior_sigma, dim, dim, bias=False, reparam=reparam)
+        self.wk = BayesLinear(prior_mu, prior_sigma, initial_sigma, dim, dim, bias=False, reparam=reparam)
+        self.wv = BayesLinear(prior_mu, prior_sigma, initial_sigma, dim, dim, bias=False, reparam=reparam)
+        self.wo = BayesLinear(prior_mu, prior_sigma, initial_sigma, dim, dim, bias=False, reparam=reparam)
 
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor):
@@ -56,10 +57,11 @@ class BayesianFeedForward(nn.Module):
                  relu: bool = True, 
                  prior_mu: float = 0.0, 
                  prior_sigma: float = 1.0,
+                 initial_sigma = 0.01,
                  reparam = 'softplus'):
         super().__init__()
-        self.w1 = BayesLinear(prior_mu, prior_sigma, dim, hidden_dim, bias=False, reparam=reparam)
-        self.w2 = BayesLinear(prior_mu, prior_sigma, hidden_dim, dim, bias=False, reparam=reparam)
+        self.w1 = BayesLinear(prior_mu, prior_sigma, initial_sigma, dim, hidden_dim, bias=False, reparam=reparam)
+        self.w2 = BayesLinear(prior_mu, prior_sigma, initial_sigma, hidden_dim, dim, bias=False, reparam=reparam)
         self.relu = relu
 
 
@@ -82,16 +84,17 @@ class BayesianTransformerBlock(nn.Module):
                  use_ffn: bool = True,
                  prior_mu: float = 0.0, 
                  prior_sigma: float = 1.0, 
+                 initial_sigma = 0.01,
                  reparam = 'softplus'):
         super().__init__()
         self.dim = dim
-        self.attention = BayesianAttention(dim=dim, prior_mu=prior_mu, prior_sigma=prior_sigma, reparam=reparam)
+        self.attention = BayesianAttention(dim=dim, prior_mu=prior_mu, prior_sigma=prior_sigma, initial_sigma=initial_sigma, reparam=reparam)
         
         self.use_ffn = use_ffn
         if self.use_ffn:
             hidden_dim = dim * mlp_multiplier
             self.ff = BayesianFeedForward(dim=dim, hidden_dim=hidden_dim, relu=relu,
-                                          prior_mu=prior_mu, prior_sigma=prior_sigma, reparam=reparam)
+                                          prior_mu=prior_mu, prior_sigma=prior_sigma, initial_sigma=initial_sigma, reparam=reparam)
 
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor):
@@ -127,6 +130,7 @@ class BayesianTransformer(nn.Module):
                  relu: bool = True,
                  prior_mu: float = 0.0, 
                  prior_sigma: float = 1.0, 
+                 initial_sigma = 0.01,
                  use_ffn_block1: bool = True,
                  use_ffn_block2: bool = True,
                  tie_weights: bool = False,
@@ -149,9 +153,9 @@ class BayesianTransformer(nn.Module):
 
         # 3. two bayesian Transformer layer, use ffn
         self.layer1 = BayesianTransformerBlock(dim=d_model, mlp_multiplier=mlp_multiplier, relu=relu, 
-                                               use_ffn=use_ffn_block1, prior_mu=prior_mu, prior_sigma=prior_sigma, reparam=reparam)
+                                               use_ffn=use_ffn_block1, prior_mu=prior_mu, prior_sigma=prior_sigma, initial_sigma=initial_sigma, reparam=reparam)
         self.layer2 = BayesianTransformerBlock(dim=d_model, mlp_multiplier=mlp_multiplier, relu=relu,
-                                               use_ffn=use_ffn_block2, prior_mu=prior_mu, prior_sigma=prior_sigma, reparam=reparam)
+                                               use_ffn=use_ffn_block2, prior_mu=prior_mu, prior_sigma=prior_sigma, initial_sigma=initial_sigma, reparam=reparam)
 
         # 4. umbedding (decode) (W_U) - freezed
         self.output_head = nn.Linear(d_model, vocab_size, bias=False)
