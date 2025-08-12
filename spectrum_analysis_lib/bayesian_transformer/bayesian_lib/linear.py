@@ -12,16 +12,18 @@ class BayesLinear(Module):
         
         if not isinstance(prior_mu, (int, float)) or not math.isfinite(prior_mu):
             raise ValueError(f"prior_mu must be a finite number, but got {prior_mu}")
-        if not isinstance(prior_sigma, (int, float)) or prior_sigma <= 0:
-            raise ValueError(f"prior_sigma must be a positive number, but got {prior_sigma}")       
+        if not isinstance(prior_sigma, (int, float)) or not math.isfinite(prior_sigma) or prior_sigma <= 0:
+            raise ValueError(f"prior_sigma must be a positive finite number, but got {prior_sigma}")
+        if not isinstance(initial_sigma, (int, float)) or not math.isfinite(initial_sigma) or initial_sigma <= 0:
+            raise ValueError(f"initial_sigma must be a positive finite number, but got {initial_sigma}")       
         if reparam not in ['softplus', 'exp']:
             raise ValueError(f"Reparameterization function must be one of ['softplus', 'exp'], got {reparam}")
         
         self.reparam = reparam
         self.in_features = in_features
         self.out_features = out_features
-        self.initial_sigma = initial_sigma
         
+        self.register_buffer("initial_sigma", torch.tensor(float(initial_sigma), dtype=torch.get_default_dtype()).clamp_min(1e-12))
         self.register_buffer("prior_mu", torch.tensor(float(prior_mu), dtype=torch.get_default_dtype()))
         self.register_buffer("prior_sigma", torch.tensor(float(prior_sigma), dtype=torch.get_default_dtype()).clamp_min(1e-12))
         
@@ -52,7 +54,7 @@ class BayesLinear(Module):
         initial_raw_sigma = self._inv_sigma(self.initial_sigma).item()
         
         # Initialize weights
-        stdv = 1. / math.sqrt(self.weight_mu.size(1))
+        stdv = 1. / math.sqrt(self.in_features)
         with torch.no_grad():
             self.weight_mu.uniform_(-stdv, stdv)
             self.weight_raw_sigma.fill_(initial_raw_sigma)
@@ -103,9 +105,9 @@ class BayesLinear(Module):
         """
         Returns a string representation of the module.
         """
-        return (f'prior_mu={self.prior_mu}, prior_sigma={self.prior_sigma}, '
+        return (f'prior_mu={self.prior_mu.item():.4g}, prior_sigma={self.prior_sigma.item():.4g}, '
                 f'in_features={self.in_features}, out_features={self.out_features}, '
-                f'bias={self.bias}')
+                f'bias={self.bias}, initial_sigma={self.initial_sigma.item():.4g}')
 
     
     def _sigma(self, raw):
